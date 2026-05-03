@@ -1,0 +1,68 @@
+{
+  "name": "@privaro/sdk",
+  "version": "0.1.0",
+  "description": "Privacy Infrastructure for Enterprise AI — iCommunity Labs",
+  "author": "iCommunity Labs <hola@privaro.ai>",
+  "license": "MIT",
+  "homepage": "https://privaro.ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Maperez1972/privaro-sdk-js"
+  },
+  "keywords": [
+    "privacy", "ai", "gdpr", "pii", "llm", "agents",
+    "compliance", "eu-ai-act", "openai", "anthropic", "langchain"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./adapters/openai": {
+      "types": "./dist/adapters/openai.d.ts",
+      "import": "./dist/adapters/openai.js",
+      "require": "./dist/adapters/openai.cjs"
+    },
+    "./adapters/langchain": {
+      "types": "./dist/adapters/langchain.d.ts",
+      "import": "./dist/adapters/langchain.js",
+      "require": "./dist/adapters/langchain.cjs"
+    },
+    "./adapters/vercel-ai": {
+      "types": "./dist/adapters/vercel-ai.d.ts",
+      "import": "./dist/adapters/vercel-ai.js",
+      "require": "./dist/adapters/vercel-ai.cjs"
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "README.md", "LICENSE"],
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm run typecheck"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0",
+    "jest": "^29.0.0",
+    "@jest/globals": "^29.0.0"
+  },
+  "peerDependencies": {
+    "openai": ">=4.0.0",
+    "langchain": ">=0.2.0",
+    "ai": ">=3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "openai": { "optional": true },
+    "langchain": { "optional": true },
+    "ai": { "optional": true }
+  }
+}
