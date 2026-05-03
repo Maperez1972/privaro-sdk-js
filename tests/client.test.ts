@@ -189,7 +189,7 @@ describe("detect()", () => {
 // ─── AgentRun ─────────────────────────────────────────────────────────────────
 
 describe("AgentRun", () => {
-  beforeEach(() => mockFetch.mockReset());
+  beforeEach(() => { mockFetch.mockReset(); });
 
   it("generates a UUID conversationId", () => {
     const run = new AgentRun(VALID_OPTS);
