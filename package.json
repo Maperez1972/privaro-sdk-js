@@ -1,5 +1,5 @@
 {
-  "name": "@privaro/sdk",
+  "name": "privaro-sdk",
   "version": "0.1.0",
   "description": "Privacy Infrastructure for Enterprise AI — iCommunity Labs",
   "author": "iCommunity Labs <hola@privaro.ai>",

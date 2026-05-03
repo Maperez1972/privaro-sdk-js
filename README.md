@@ -1,11 +1,11 @@
-# @privaro/sdk
+# privaro-sdk
 
 **Privacy infrastructure for enterprise AI** — intercepts PII before it reaches any LLM.
 
 Drop-in SDK for Node.js and edge runtimes. Wraps your existing OpenAI, Anthropic, LangChain, or Vercel AI calls with automatic PII detection, tokenisation, and blockchain-certified audit logging — no architecture changes required.
 
 ```
-npm install @privaro/sdk
+npm install privaro-sdk
 ```
 
 ---
@@ -13,7 +13,7 @@ npm install @privaro/sdk
 ## Quickstart
 
 ```ts
-import { PrivaroClient } from "@privaro/sdk";
+import { PrivaroClient } from "privaro-sdk";
 
 const privaro = new PrivaroClient({
   apiKey: process.env.PRIVARO_API_KEY!,      // starts with "prvr_"
@@ -39,7 +39,7 @@ Pass `result.protected` to your LLM. The original values are stored in the Priva
 ## Installation
 
 ```
-npm install @privaro/sdk
+npm install privaro-sdk
 ```
 
 **Node.js ≥ 18** required. No native dependencies — uses the built-in `fetch` API.
@@ -143,8 +143,8 @@ Replace your OpenAI client with the Privaro-wrapped version. Identical API surfa
 
 ```ts
 import OpenAI from "openai";
-import { PrivaroClient } from "@privaro/sdk";
-import { wrapOpenAI } from "@privaro/sdk/adapters/openai";
+import { PrivaroClient } from "privaro-sdk";
+import { wrapOpenAI } from "privaro-sdk/adapters/openai";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const privaro = new PrivaroClient({
@@ -170,8 +170,8 @@ Attach to any LangChain LLM or chain.
 
 ```ts
 import { ChatOpenAI } from "@langchain/openai";
-import { PrivaroClient } from "@privaro/sdk";
-import { PrivaroCallbackHandler } from "@privaro/sdk/adapters/langchain";
+import { PrivaroClient } from "privaro-sdk";
+import { PrivaroCallbackHandler } from "privaro-sdk/adapters/langchain";
 
 const privaro = new PrivaroClient({
   apiKey: process.env.PRIVARO_API_KEY!,
@@ -198,8 +198,8 @@ Works with `generateText`, `streamText`, and `useChat`.
 ```ts
 import { openai } from "@ai-sdk/openai";
 import { generateText } from "ai";
-import { PrivaroClient } from "@privaro/sdk";
-import { privaroMiddleware } from "@privaro/sdk/adapters/vercel-ai";
+import { PrivaroClient } from "privaro-sdk";
+import { privaroMiddleware } from "privaro-sdk/adapters/vercel-ai";
 
 const privaro = new PrivaroClient({
   apiKey: process.env.PRIVARO_API_KEY!,
@@ -221,7 +221,7 @@ const { text } = await generateText({
 For multi-step agents, `AgentRun` shares token scope across turns — `[NM-0001]` always refers to the same person throughout the conversation.
 
 ```ts
-import { AgentRun } from "@privaro/sdk";
+import { AgentRun } from "privaro-sdk";
 
 const run = new AgentRun({
   apiKey: process.env.PRIVARO_API_KEY!,
@@ -251,7 +251,7 @@ const finalText = await run.reveal(llmResponse.choices[0].message.content!);
 Mirrors the Python SDK pattern for simpler apps:
 
 ```ts
-import privaro from "@privaro/sdk";
+import privaro from "privaro-sdk";
 
 privaro.init({
   apiKey: process.env.PRIVARO_API_KEY!,
@@ -273,7 +273,7 @@ import {
   PolicyBlockError,
   RateLimitError,
   ProxyUnavailableError,
-} from "@privaro/sdk";
+} from "privaro-sdk";
 
 try {
   const result = await privaro.protect(prompt);

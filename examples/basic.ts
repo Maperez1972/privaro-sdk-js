@@ -1,5 +1,5 @@
 /**
- * @privaro/sdk — Basic usage examples
+ * privaro-sdk — Basic usage examples
  * Run: npx tsx examples/basic.ts
  */
 
@@ -84,8 +84,8 @@ async function example4_openaiAdapter() {
   console.log(`
 // Replace your OpenAI calls with this:
 import OpenAI from "openai";
-import { wrapOpenAI } from "@privaro/sdk/adapters/openai";
-import { PrivaroClient } from "@privaro/sdk";
+import { wrapOpenAI } from "privaro-sdk/adapters/openai";
+import { PrivaroClient } from "privaro-sdk";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const privaro = new PrivaroClient({
