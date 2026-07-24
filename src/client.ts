@@ -16,6 +16,7 @@ import {
   RateLimitError,
   ProxyUnavailableError,
 } from "./errors.js";
+import { randomUUID } from "./utils.js";
 
 const DEFAULT_BASE_URL = "https://api.privaro.ai/v1";
 
@@ -457,7 +458,7 @@ export class AgentRun {
 
   constructor(opts: PrivaroClientOptions) {
     this.client = new PrivaroClient(opts);
-    this.conversationId = crypto.randomUUID();
+    this.conversationId = randomUUID();
   }
 
   /** Protect a prompt, returning tokenised messages ready for your LLM */

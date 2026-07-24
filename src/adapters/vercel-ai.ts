@@ -24,6 +24,7 @@
 
 import type { PrivaroClient } from "../client.js";
 import type { ProtectOptions } from "../types/index.js";
+import { randomUUID } from "../utils.js";
 
 interface VercelAIMessage {
   role: string;
@@ -54,12 +55,12 @@ export function privaroMiddleware(
   opts: ProtectOptions & { deTokeniseResponse?: boolean } = {}
 ): LanguageModelMiddleware {
   const deTokenise = opts.deTokeniseResponse ?? true;
-  let conversationId = crypto.randomUUID();
+  let conversationId = randomUUID();
   let lastConversationId = conversationId;
 
   return {
     async transformParams({ params }) {
-      conversationId = crypto.randomUUID();
+      conversationId = randomUUID();
       lastConversationId = conversationId;
 
       const messages: VercelAIMessage[] = params.messages ?? params.prompt ?? [];

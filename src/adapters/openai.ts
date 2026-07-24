@@ -28,6 +28,7 @@
 
 import type { PrivaroClient } from "../client.js";
 import type { ProtectOptions } from "../types/index.js";
+import { randomUUID } from "../utils.js";
 
 // Minimal OpenAI types (avoids hard dependency — works with any openai version)
 interface ChatMessage {
@@ -70,7 +71,7 @@ export function wrapOpenAI(
   opts: ProtectOptions & { deTokeniseResponse?: boolean } = {}
 ): OpenAIClient {
   const deTokenise = opts.deTokeniseResponse ?? true;
-  const conversationId = opts.conversationId ?? crypto.randomUUID();
+  const conversationId = opts.conversationId ?? randomUUID();
 
   return {
     chat: {

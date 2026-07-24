@@ -28,6 +28,7 @@
 
 import type { PrivaroClient } from "../client.js";
 import type { Detection } from "../types/index.js";
+import { randomUUID } from "../utils.js";
 
 /** Token map for a single LangChain chain run */
 interface RunContext {
@@ -51,7 +52,7 @@ export class PrivaroCallbackHandler {
     prompts: string[],
     runId: string
   ): Promise<void> {
-    const conversationId = crypto.randomUUID();
+    const conversationId = randomUUID();
     let totalDetected = 0;
     const allDetections: Detection[] = [];
 
