@@ -43,7 +43,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # npm@latest (12.x) requires Node >=22.22.2 — bumped from 20
+          # after a real CI failure (EBADENGINE). This is independent
+          # from the test job's Node matrix (18/20/22), which still
+          # verifies the published package itself works on all of those.
+          node-version: "22"
           cache: "npm"
           registry-url: "https://registry.npmjs.org"
 
