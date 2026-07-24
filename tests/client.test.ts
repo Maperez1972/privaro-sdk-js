@@ -23,25 +23,36 @@ function mockHttpError(status: number, body: unknown = {}) {
   } as Response);
 }
 
-/** Simulates an SSE response body as a real ReadableStream, split across
- *  arbitrary chunk boundaries (to exercise the buffer-across-chunks logic). */
+/**
+ * Simulates an SSE response body, split across arbitrary chunk boundaries
+ * (to exercise the buffer-across-chunks logic in relayStream()).
+ *
+ * Deliberately does NOT use the native ReadableStream class. Node's Web
+ * Streams are only stable globals from Node 20 onward (present but
+ * "experimental" in 18/19 — see https://nodejs.org/api/webstreams.html),
+ * and this SDK needs to test cleanly across the Node matrix this repo's
+ * CI actually runs (18/20/22). relayStream() only ever calls
+ * response.body.getReader() and then reader.read()/releaseLock() — so a
+ * plain object implementing exactly that minimal interface is both
+ * simpler and fully version-independent.
+ */
 function mockSseStream(rawChunks: string[]) {
   const encoder = new TextEncoder();
   let i = 0;
-  const stream = new ReadableStream<Uint8Array>({
-    pull(controller) {
-      if (i >= rawChunks.length) {
-        controller.close();
-        return;
-      }
-      controller.enqueue(encoder.encode(rawChunks[i]));
+  const reader = {
+    async read(): Promise<{ done: boolean; value?: Uint8Array }> {
+      if (i >= rawChunks.length) return { done: true };
+      const value = encoder.encode(rawChunks[i]);
       i++;
+      return { done: false, value };
     },
-  });
+    releaseLock() {},
+  };
+  const body = { getReader: () => reader };
   mockFetch.mockResolvedValueOnce({
     ok: true,
     status: 200,
-    body: stream,
+    body,
     json: async () => ({}),
   } as unknown as Response);
 }
