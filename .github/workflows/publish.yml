@@ -8,7 +8,7 @@ on:
 
 permissions:
   contents: write   # needed to create GitHub Releases
-  id-token: write   # needed for npm provenance
+  id-token: write   # needed for npm Trusted Publishing (OIDC) — no NPM_TOKEN required
 
 jobs:
   # ── 1. CI — test + typecheck en la misma ejecución ───────────────────────────
@@ -50,6 +50,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Trusted Publishing (OIDC) requires npm 11.5.1+ — setup-node's
+      # bundled npm may be older, so force an update before publishing.
+      - name: Update npm for OIDC support
+        run: npm install -g npm@latest
+
       # Extract version from tag (v1.2.3 → 1.2.3)
       - name: Extract version from tag
         id: version
@@ -84,10 +89,13 @@ jobs:
           echo "DIST_TAG=$DIST_TAG" >> "$GITHUB_OUTPUT"
           echo "Publishing with dist-tag: $DIST_TAG"
 
+      # Trusted Publishing (OIDC) — no NPM_TOKEN needed. npm matches this
+      # workflow run (org/repo/workflow filename/environment) against the
+      # Trusted Publisher configured on npmjs.com for this package, and
+      # automatically generates provenance attestations (no --provenance
+      # flag needed — adding it is redundant with OIDC auth).
       - name: Publish to npm
-        run: npm publish --access public --tag ${{ steps.dist_tag.outputs.DIST_TAG }} --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --tag ${{ steps.dist_tag.outputs.DIST_TAG }}
 
       # Create GitHub Release with auto-generated notes
       - name: Create GitHub Release
