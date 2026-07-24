@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, jest } from "@jest/globals";
 import { PrivaroClient, AgentRun } from "../src/client.js";
 import { AuthError, PipelineNotFoundError, PrivaroError } from "../src/errors.js";
+import { randomUUID } from "../src/utils.js";
 
 // ─── Mock fetch ───────────────────────────────────────────────────────────────
 
@@ -316,5 +317,43 @@ describe("relayStream()", () => {
         // consume
       }
     }).rejects.toThrow(AuthError);
+  });
+});
+
+describe("randomUUID() fallback (utils.ts)", () => {
+  /**
+   * Regression test for the real Node 18 CI failure chased over several
+   * rounds (2026-07-24): globalThis.crypto.randomUUID doesn't exist on
+   * Node 18 without a flag, so randomUUID() must fall back to
+   * node:crypto. Every other test in this file runs on whatever Node
+   * version executes the test suite (Node 22 locally) — where the global
+   * already exists — so none of them actually exercise the fallback
+   * branch. This one forces it by deleting globalThis.crypto for the
+   * duration of the test, so the createRequire("node:crypto") path is
+   * genuinely proven to work, not just assumed to.
+   */
+  it("falls back to node:crypto when globalThis.crypto is unavailable", () => {
+    const original = (globalThis as any).crypto;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (globalThis as any).crypto;
+    try {
+      const id = randomUUID();
+      expect(id).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      );
+    } finally {
+      (globalThis as any).crypto = original;
+    }
+  });
+
+  it("uses globalThis.crypto.randomUUID when available", () => {
+    const original = (globalThis as any).crypto;
+    const fakeUUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    (globalThis as any).crypto = { randomUUID: () => fakeUUID };
+    try {
+      expect(randomUUID()).toBe(fakeUUID);
+    } finally {
+      (globalThis as any).crypto = original;
+    }
   });
 });
