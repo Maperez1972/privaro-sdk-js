@@ -60,7 +60,7 @@ npm install ai              # Vercel AI SDK adapter
 const privaro = new PrivaroClient({
   apiKey: "prvr_...",           // required — from /app/admin/api-keys
   pipelineId: "uuid",          // required — from /app/pipelines
-  baseUrl: "https://...",      // optional — defaults to production Railway endpoint
+  baseUrl: "https://...",      // optional — defaults to https://api.privaro.ai
   timeout: 10_000,             // optional — ms, default 10s
   defaultMode: "tokenise",     // optional — tokenise | anonymise | block
 });
@@ -132,6 +132,20 @@ const result = await privaro.relay([
 console.log(result.response);   // LLM reply with original values restored
 console.log(result.pii_masked); // number of entities protected
 ```
+
+### `client.relayStream(messages, opts?)` — for chat UIs
+
+Same as `relay()`, but yields the LLM's response as it's generated (SSE under the hood), for chat-style products that show responses token-by-token. Deltas are already de-tokenised — never emits a raw token, safe to render directly.
+
+```ts
+for await (const delta of privaro.relayStream([
+  { role: "user", content: "Soy Juan Pérez, ¿podéis confirmarme mi cita?" },
+])) {
+  process.stdout.write(delta); // already clean text, ready to show
+}
+```
+
+Supported for streaming today: OpenAI, Azure OpenAI, Anthropic. Other providers throw a clear error — use `relay()` (non-streaming) for those instead. `idempotencyKey` is not supported on this method (replaying a completed stream doesn't have the same semantics as retrying a short response) — use `relay()` if you need idempotent retries.
 
 ---
 

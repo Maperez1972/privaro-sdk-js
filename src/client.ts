@@ -17,8 +17,7 @@ import {
   ProxyUnavailableError,
 } from "./errors.js";
 
-const DEFAULT_BASE_URL =
-  "https://privaro-proxy-production.up.railway.app/v1";
+const DEFAULT_BASE_URL = "https://api.privaro.ai/v1";
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -119,17 +118,20 @@ export class PrivaroClient {
     this.defaultMode = opts.defaultMode ?? "tokenise";
   }
 
-  private get _headers(): Record<string, string> {
-    return {
+  private _headers(idempotencyKey?: string): Record<string, string> {
+    const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "X-Privaro-Key": this.apiKey,
     };
+    if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
+    return headers;
   }
 
   private async _request<T = Record<string, unknown>>(
     method: string,
     path: string,
-    body?: unknown
+    body?: unknown,
+    idempotencyKey?: string
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const controller = new AbortController();
@@ -139,7 +141,7 @@ export class PrivaroClient {
     try {
       response = await fetch(url, {
         method,
-        headers: this._headers,
+        headers: this._headers(idempotencyKey),
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
         signal: controller.signal,
       } as RequestInit);
@@ -228,7 +230,8 @@ export class PrivaroClient {
         ...(opts.conversationId
           ? { conversation_id: opts.conversationId }
           : {}),
-      }
+      },
+      opts.idempotencyKey
     );
 
     return makeProtectResult(raw, prompt);
@@ -293,10 +296,132 @@ export class PrivaroClient {
           temperature: opts.temperature ?? 0.7,
           ...(opts.systemPrompt ? { system_prompt: opts.systemPrompt } : {}),
         },
-      }
+        ...(opts.conversationId ? { conversation_id: opts.conversationId } : {}),
+      },
+      opts.idempotencyKey
     );
 
     return raw as unknown as RelayResult;
+  }
+
+  // ── relayStream ─────────────────────────────────────────────────────────────
+
+  /**
+   * Full-cycle privacy relay, streamed as the LLM generates it.
+   * Protect messages → route to configured LLM → yield de-tokenised text
+   * deltas as they arrive (Server-Sent Events under the hood).
+   *
+   * Note: Idempotency-Key is not supported here (replaying a completed
+   * stream doesn't have the same "just resend the result" semantics as a
+   * short synchronous response) — use relay() if you need idempotent retries.
+   *
+   * @example
+   * for await (const delta of client.relayStream(messages)) {
+   *   process.stdout.write(delta); // already de-tokenised, safe to show
+   * }
+   */
+  async *relayStream(
+    messages: RelayMessage[],
+    opts: RelayOptions = {}
+  ): AsyncGenerator<string, void, unknown> {
+    const url = `${this.baseUrl}/relay/stream`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeout);
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: this._headers(),
+        body: JSON.stringify({
+          pipeline_id: this.pipelineId,
+          messages,
+          options: {
+            mode: opts.mode ?? this.defaultMode,
+            detokenise_response: opts.detokeniseResponse ?? true,
+            include_detections: opts.includeDetections ?? true,
+            max_tokens: opts.maxTokens ?? 2048,
+            temperature: opts.temperature ?? 0.7,
+            ...(opts.systemPrompt ? { system_prompt: opts.systemPrompt } : {}),
+          },
+          ...(opts.conversationId ? { conversation_id: opts.conversationId } : {}),
+        }),
+        signal: controller.signal,
+      } as RequestInit);
+    } catch (err) {
+      clearTimeout(timer);
+      if ((err as Error).name === "AbortError") {
+        throw new ProxyUnavailableError(
+          this.baseUrl,
+          new Error(`Request timed out after ${this.timeout}ms`)
+        );
+      }
+      throw new ProxyUnavailableError(this.baseUrl, err);
+    }
+    clearTimeout(timer);
+
+    if (!response.ok || !response.body) {
+      let detail: unknown = {};
+      try {
+        detail = await response.json();
+      } catch {
+        /* ignore */
+      }
+      switch (response.status) {
+        case 401:
+        case 403:
+          throw new AuthError();
+        case 404:
+          throw new PipelineNotFoundError(this.pipelineId);
+        case 429:
+          throw new RateLimitError();
+        default:
+          throw new PrivaroError(
+            `HTTP ${response.status}: ${JSON.stringify(detail)}`
+          );
+      }
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("data:")) continue;
+          const raw = trimmed.slice(5).trim();
+          if (!raw || raw === "[DONE]") continue;
+
+          let event: Record<string, unknown>;
+          try {
+            event = JSON.parse(raw);
+          } catch {
+            continue; // skip malformed SSE line
+          }
+
+          if (event.error) {
+            throw new PrivaroError(
+              `LLM provider error: ${event.error}`,
+              event
+            );
+          }
+          if (typeof event.delta === "string" && event.delta) {
+            yield event.delta;
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
   }
 
   // ── health ───────────────────────────────────────────────────────────────────

@@ -107,6 +107,9 @@ export interface ProtectOptions {
   includeDetections?: boolean;
   /** Group tokens within a conversation for consistent replacement */
   conversationId?: string;
+  /** Safe-retry key — a repeated call with the same key returns the exact
+   *  same result without re-billing. */
+  idempotencyKey?: string;
 }
 
 // ─── Relay (full-cycle) ───────────────────────────────────────────────────────
@@ -123,6 +126,12 @@ export interface RelayOptions {
   maxTokens?: number;
   temperature?: number;
   systemPrompt?: string;
+  /** Group tokens within a conversation for consistent replacement across turns */
+  conversationId?: string;
+  /** Safe-retry key — a repeated call with the same key returns the exact
+   *  same result without re-billing or re-calling the LLM. Not supported
+   *  by relayStream(). */
+  idempotencyKey?: string;
 }
 
 export interface RelayResult {

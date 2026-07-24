@@ -23,6 +23,29 @@ function mockHttpError(status: number, body: unknown = {}) {
   } as Response);
 }
 
+/** Simulates an SSE response body as a real ReadableStream, split across
+ *  arbitrary chunk boundaries (to exercise the buffer-across-chunks logic). */
+function mockSseStream(rawChunks: string[]) {
+  const encoder = new TextEncoder();
+  let i = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (i >= rawChunks.length) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(encoder.encode(rawChunks[i]));
+      i++;
+    },
+  });
+  mockFetch.mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    body: stream,
+    json: async () => ({}),
+  } as unknown as Response);
+}
+
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 const VALID_OPTS = {
@@ -69,7 +92,7 @@ describe("PrivaroClient constructor", () => {
     expect(client.apiKey).toBe(VALID_OPTS.apiKey);
     expect(client.pipelineId).toBe(VALID_OPTS.pipelineId);
     expect(client.baseUrl).toBe(
-      "https://privaro-proxy-production.up.railway.app/v1"
+      "https://api.privaro.ai/v1"
     );
   });
 
@@ -215,5 +238,72 @@ describe("AgentRun", () => {
     await run.protect("step 1");
     await run.protect("step 2");
     expect(run.stepCount).toBe(2);
+  });
+});
+
+describe("relayStream()", () => {
+  it("yields de-tokenised deltas as they arrive", async () => {
+    mockSseStream([
+      'data: {"delta": "Claro, "}\n\n',
+      'data: {"delta": "Juan Pérez"}\n\ndata: {"delta": ", su cita es el..."}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+
+    const client = new PrivaroClient(VALID_OPTS);
+    const deltas: string[] = [];
+    for await (const delta of client.relayStream([
+      { role: "user", content: "hola" },
+    ])) {
+      deltas.push(delta);
+    }
+
+    expect(deltas.join("")).toBe("Claro, Juan Pérez, su cita es el...");
+  });
+
+  it("handles an SSE event split across two raw chunks", async () => {
+    // The exact same logical event, but the chunk boundary falls
+    // mid-JSON — must still parse correctly once buffered.
+    mockSseStream([
+      'data: {"del',
+      'ta": "hola mundo"}\n\ndata: [DONE]\n\n',
+    ]);
+
+    const client = new PrivaroClient(VALID_OPTS);
+    const deltas: string[] = [];
+    for await (const delta of client.relayStream([
+      { role: "user", content: "hola" },
+    ])) {
+      deltas.push(delta);
+    }
+
+    expect(deltas.join("")).toBe("hola mundo");
+  });
+
+  it("throws PrivaroError when the stream reports a provider error", async () => {
+    mockSseStream([
+      'data: {"error": "OpenAI error 401: invalid key", "provider": "openai"}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+
+    const client = new PrivaroClient(VALID_OPTS);
+    await expect(async () => {
+      for await (const _ of client.relayStream([
+        { role: "user", content: "hola" },
+      ])) {
+        // consume
+      }
+    }).rejects.toThrow(PrivaroError);
+  });
+
+  it("throws AuthError on 401", async () => {
+    mockHttpError(401);
+    const client = new PrivaroClient(VALID_OPTS);
+    await expect(async () => {
+      for await (const _ of client.relayStream([
+        { role: "user", content: "hola" },
+      ])) {
+        // consume
+      }
+    }).rejects.toThrow(AuthError);
   });
 });
