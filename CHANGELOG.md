@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 — 2026-08-07
+
+Found during a full backend integration audit of Context Optimization (privaro-proxy PR #1): the API gained the ability to compress tokenised prompts/messages before sending them to your LLM, but the SDK had no way to request or read it.
+
+- **Added `optimizeContext?: boolean` to `ProtectOptions` and `RelayOptions`** — opt-in, defaults to `false`. Compresses the tokenised prompt/messages before the LLM call, reducing tokens sent. Never touches PII tokens (`[XX-0001]`) — verified end-to-end against real documents before release.
+- **Added `compressionStats` to `ProtectResult`** (camelCase, field-mapped) and **`compression_stats` to `RelayResult`** (snake_case, direct passthrough — consistent with every other field on that interface) — populated only when `optimizeContext: true` was passed and the compressor actually ran.
+- **`AgentRun.protect()`** now accepts an `optimizeContext` third argument and surfaces `compressionStats` on the resulting `AgentStep`.
+- No breaking changes — all new fields are optional and default to `undefined`/`false`.
+
 ## 0.2.0 — 2026-07-24
 
 Prompted by a real integration in progress (Octupus/Robin AI) asking whether they needed to build their own detokenization for a streaming chat — they didn't, but the SDK had no way to actually use streaming at all.
