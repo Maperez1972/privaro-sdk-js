@@ -72,6 +72,11 @@ export interface ProtectResult {
   // Performance
   processing_ms: number;
 
+  /** Populated only when optimizeContext=true was passed to protect().
+   *  Added 2026-07-30 after a full integration audit found the API
+   *  already returns this field but the SDK silently dropped it. */
+  compressionStats?: { tokens_saved: number; compression_ratio: number } | undefined;
+
   // Convenience helpers
   readonly riskLevel: "high" | "medium" | "low" | "unknown";
   readonly hasPii: boolean;
@@ -110,6 +115,10 @@ export interface ProtectOptions {
   /** Safe-retry key — a repeated call with the same key returns the exact
    *  same result without re-billing. */
   idempotencyKey?: string;
+  /** Compress the tokenised prompt before returning it, to reduce tokens
+   *  sent to your LLM. Never touches PII tokens ([XX-0001]) — see
+   *  result.compressionStats for tokens_saved / compression_ratio. */
+  optimizeContext?: boolean;
 }
 
 // ─── Relay (full-cycle) ───────────────────────────────────────────────────────
@@ -132,6 +141,9 @@ export interface RelayOptions {
    *  same result without re-billing or re-calling the LLM. Not supported
    *  by relayStream(). */
   idempotencyKey?: string;
+  /** Compress tokenised messages before the LLM call. Never touches PII
+   *  tokens ([XX-0001]) — see result.compressionStats. */
+  optimizeContext?: boolean;
 }
 
 export interface RelayResult {
@@ -150,6 +162,7 @@ export interface RelayResult {
   tokens_replaced: number;
   usage: Record<string, number>;
   processing_ms: number;
+  compression_stats?: { tokens_saved: number; compression_ratio: number };
 }
 
 // ─── Agent run ────────────────────────────────────────────────────────────────
@@ -161,4 +174,5 @@ export interface AgentStep {
   first_content: string;
   detections: Detection[];
   step_id: string;
+  compressionStats?: { tokens_saved: number; compression_ratio: number } | undefined;
 }

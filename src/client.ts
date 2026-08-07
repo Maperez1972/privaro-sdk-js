@@ -55,6 +55,16 @@ function makeProtectResult(
   const risk_score = (stats.risk_score as number | null) ?? null;
   const gdpr_compliant = (raw.gdpr_compliant as boolean) ?? true;
   const processing_ms = (stats.processing_ms as number) ?? 0;
+  const rawCompressionStats = raw.compression_stats as
+    | { tokens_saved?: number; compression_ratio?: number }
+    | undefined;
+  const compressionStats =
+    rawCompressionStats && rawCompressionStats.tokens_saved
+      ? {
+          tokens_saved: rawCompressionStats.tokens_saved,
+          compression_ratio: rawCompressionStats.compression_ratio ?? 0,
+        }
+      : undefined;
 
   return {
     protected: (raw.protected_prompt as string) ?? original,
@@ -69,6 +79,7 @@ function makeProtectResult(
     risk_score,
     gdpr_compliant,
     processing_ms,
+    compressionStats,
     get riskLevel() {
       if (this.risk_score === null) return "unknown";
       if (this.risk_score >= 0.7) return "high";
@@ -227,6 +238,7 @@ export class PrivaroClient {
           reversible: opts.reversible ?? true,
           agent_mode: opts.agentMode ?? false,
           include_detections: opts.includeDetections ?? true,
+          optimize_context: opts.optimizeContext ?? false,
         },
         ...(opts.conversationId
           ? { conversation_id: opts.conversationId }
@@ -295,6 +307,7 @@ export class PrivaroClient {
           include_detections: opts.includeDetections ?? true,
           max_tokens: opts.maxTokens ?? 2048,
           temperature: opts.temperature ?? 0.7,
+          optimize_context: opts.optimizeContext ?? false,
           ...(opts.systemPrompt ? { system_prompt: opts.systemPrompt } : {}),
         },
         ...(opts.conversationId ? { conversation_id: opts.conversationId } : {}),
@@ -464,11 +477,13 @@ export class AgentRun {
   /** Protect a prompt, returning tokenised messages ready for your LLM */
   async protect(
     content: string,
-    role: RelayMessage["role"] = "user"
+    role: RelayMessage["role"] = "user",
+    optimizeContext = false
   ): Promise<AgentStep> {
     const result = await this.client.protect(content, {
       agentMode: true,
       conversationId: this.conversationId,
+      optimizeContext,
     });
 
     const step: AgentStep = {
@@ -476,6 +491,7 @@ export class AgentRun {
       first_content: result.protected,
       detections: result.detections,
       step_id: result.request_id,
+      compressionStats: result.compressionStats,
     };
 
     this._steps.push(step);
