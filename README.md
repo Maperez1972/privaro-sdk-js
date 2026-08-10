@@ -147,6 +147,22 @@ for await (const delta of privaro.relayStream([
 
 Supported for streaming today: OpenAI, Azure OpenAI, Anthropic. Other providers throw a clear error — use `relay()` (non-streaming) for those instead. `idempotencyKey` is not supported on this method (replaying a completed stream doesn't have the same semantics as retrying a short response) — use `relay()` if you need idempotent retries.
 
+### `client.protectOutput(responseText, opts?)` — scan the LLM's response
+
+`relay()`/`relayStream()` already scan the LLM's response for you (Privaro makes the call itself there). If instead you call `protect()` and then hit your own LLM directly, use `protectOutput()` to scan that response before returning it to your end user — RAG retrieval, tool-call results, and model memorization can all leak PII that was never in the original prompt.
+
+Requires the pipeline to have output scanning enabled (dashboard: Pipelines → Settings → Output scanning) — otherwise throws `OutputScanningDisabledError` rather than silently skipping the scan.
+
+```ts
+const out = await privaro.protectOutput(llmResponseText, {
+  conversationId, // same id used for the matching protect() call
+});
+
+console.log(out.protected);         // send this to your end user
+console.log(out.scan_mode);         // "shadow" (informational) | "enforce"
+console.log(out.response_modified);
+```
+
 ---
 
 ## Adapters
@@ -287,6 +303,7 @@ import {
   PolicyBlockError,
   RateLimitError,
   ProxyUnavailableError,
+  OutputScanningDisabledError,
 } from "privaro-sdk";
 
 try {
@@ -304,6 +321,9 @@ try {
   }
   if (err instanceof ProxyUnavailableError) {
     // Network issue — proxy unreachable
+  }
+  if (err instanceof OutputScanningDisabledError) {
+    // protectOutput() called on a pipeline that hasn't enabled output scanning
   }
   // All errors extend PrivaroError
 }

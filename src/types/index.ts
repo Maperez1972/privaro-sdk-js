@@ -86,6 +86,59 @@ export interface ProtectResult {
   summary(): string;
 }
 
+// ─── ProtectOutputResult (output-direction PII scanning) ──────────────────────
+
+export interface ProtectOutputOptions {
+  /** tokenise | anonymise | block. Overrides client default */
+  mode?: ProtectionMode;
+  /** Store reversible tokens in vault. Default: true. If true,
+   *  conversationId is required — pass the SAME conversationId used for
+   *  the matching protect() call so tokens replace consistently. */
+  reversible?: boolean;
+  /** Enable stricter policies for agent/automated pipelines */
+  agentMode?: boolean;
+  /** Include per-entity details in response. Default: true */
+  includeDetections?: boolean;
+  /** Must match the protect() call for this turn when reversible=true */
+  conversationId?: string;
+  /** Safe-retry key — a repeated call with the same key returns the
+   *  exact same result without re-billing. */
+  idempotencyKey?: string;
+}
+
+export interface ProtectOutputResult {
+  /** Response text with PII replaced by tokens — return this to your end user */
+  protected: string;
+  /** Original LLM response text — stored client-side */
+  original: string;
+  request_id: string;
+  audit_log_id: string | null;
+
+  detections: Detection[];
+
+  total_detected: number;
+  total_masked: number;
+  leaked: number;
+  coverage_pct: number;
+
+  risk_score: number | null;
+  gdpr_compliant: boolean;
+
+  processing_ms: number;
+
+  /** "shadow" (informational) or "enforce" — mirrors the pipeline's
+   *  output_scanning_mode dashboard setting at the time of the call. */
+  scan_mode: "shadow" | "enforce";
+  /** True if .protected differs from .original — this call masked something */
+  response_modified: boolean;
+
+  readonly riskLevel: "high" | "medium" | "low" | "unknown";
+  readonly hasPii: boolean;
+  readonly isSafe: boolean;
+
+  summary(): string;
+}
+
 // ─── Client options ───────────────────────────────────────────────────────────
 
 export interface PrivaroClientOptions {
