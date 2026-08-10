@@ -2,6 +2,8 @@ import type {
   PrivaroClientOptions,
   ProtectOptions,
   ProtectResult,
+  ProtectOutputOptions,
+  ProtectOutputResult,
   Detection,
   RelayMessage,
   RelayOptions,
@@ -15,6 +17,7 @@ import {
   PolicyBlockError,
   RateLimitError,
   ProxyUnavailableError,
+  OutputScanningDisabledError,
 } from "./errors.js";
 import { randomUUID } from "./utils.js";
 
@@ -104,6 +107,64 @@ function makeProtectResult(
   };
 }
 
+function makeProtectOutputResult(
+  raw: Record<string, unknown>,
+  original: string
+): ProtectOutputResult {
+  const stats = (raw.stats as Record<string, unknown>) ?? {};
+  const detections = ((raw.detections as unknown[]) ?? []).map((d) =>
+    makeDetection(d as Record<string, unknown>)
+  );
+
+  const total_detected = (stats.total_detected as number) ?? detections.length;
+  const total_masked = (stats.total_masked as number) ?? 0;
+  const leaked = (stats.leaked as number) ?? 0;
+  const coverage_pct = (stats.coverage_pct as number) ?? 100;
+  const risk_score = (stats.risk_score as number | null) ?? null;
+  const gdpr_compliant = (raw.gdpr_compliant as boolean) ?? true;
+  const processing_ms = (stats.processing_ms as number) ?? 0;
+  const scan_mode = ((raw.scan_mode as string) ?? "shadow") as "shadow" | "enforce";
+  const response_modified = (raw.response_modified as boolean) ?? false;
+
+  return {
+    protected: (raw.protected_response as string) ?? original,
+    original,
+    request_id: (raw.request_id as string) ?? "",
+    audit_log_id: (raw.audit_log_id as string | null) ?? null,
+    detections,
+    total_detected,
+    total_masked,
+    leaked,
+    coverage_pct,
+    risk_score,
+    gdpr_compliant,
+    processing_ms,
+    scan_mode,
+    response_modified,
+    get riskLevel() {
+      if (this.risk_score === null) return "unknown";
+      if (this.risk_score >= 0.7) return "high";
+      if (this.risk_score >= 0.4) return "medium";
+      return "low";
+    },
+    get hasPii() {
+      return this.total_detected > 0;
+    },
+    get isSafe() {
+      return this.gdpr_compliant && this.leaked === 0;
+    },
+    summary() {
+      return (
+        `[Privaro:output] ${this.total_detected} detected, ` +
+        `${this.total_masked} masked, mode=${this.scan_mode}, ` +
+        `risk=${this.riskLevel}${this.risk_score !== null ? ` (${this.risk_score.toFixed(2)})` : ""}, ` +
+        `gdpr=${this.gdpr_compliant ? "✓" : "✗"}, ` +
+        `${this.processing_ms}ms`
+      );
+    },
+  };
+}
+
 // ─── PrivaroClient ────────────────────────────────────────────────────────────
 
 export class PrivaroClient {
@@ -183,8 +244,16 @@ export class PrivaroClient {
 
       switch (response.status) {
         case 401:
-        case 403:
           throw new AuthError();
+        case 403: {
+          const err403 = (detail as Record<string, unknown>)?.error;
+          if (err403 === "output_scanning_disabled") {
+            throw new OutputScanningDisabledError(
+              ((detail as Record<string, unknown>)?.message as string) ?? undefined
+            );
+          }
+          throw new AuthError();
+        }
         case 404:
           throw new PipelineNotFoundError(this.pipelineId);
         case 429:
@@ -276,6 +345,58 @@ export class PrivaroClient {
     );
     result.protected = prompt; // detect never masks
     return result;
+  }
+
+  // ── protectOutput ────────────────────────────────────────────────────────────
+
+  /**
+   * Scan and mask PII in an LLM RESPONSE (output direction), for callers
+   * who use protect() and then hit their own LLM directly — as opposed
+   * to relay()/relayStream(), where Privaro makes the LLM call itself
+   * and already scans the response inline.
+   *
+   * Requires the pipeline to have output-direction scanning enabled
+   * (dashboard: Pipelines → Settings → Output scanning). Throws
+   * OutputScanningDisabledError otherwise — this call never silently
+   * passes text through unscanned.
+   *
+   * @example
+   * const out = await client.protectOutput(llmResponseText, {
+   *   conversationId, // same id used for the matching protect() call
+   * });
+   * return out.protected; // send this to your end user
+   */
+  async protectOutput(
+    responseText: string,
+    opts: ProtectOutputOptions = {}
+  ): Promise<ProtectOutputResult> {
+    if (!responseText?.trim()) {
+      return makeProtectOutputResult(
+        { protected_response: "", detections: [], gdpr_compliant: true, request_id: "" },
+        responseText ?? ""
+      );
+    }
+
+    const raw = await this._request<Record<string, unknown>>(
+      "POST",
+      "/proxy/protect-output",
+      {
+        pipeline_id: this.pipelineId,
+        response_text: responseText,
+        options: {
+          mode: opts.mode ?? this.defaultMode,
+          reversible: opts.reversible ?? true,
+          agent_mode: opts.agentMode ?? false,
+          include_detections: opts.includeDetections ?? true,
+        },
+        ...(opts.conversationId
+          ? { conversation_id: opts.conversationId }
+          : {}),
+      },
+      opts.idempotencyKey
+    );
+
+    return makeProtectOutputResult(raw, responseText);
   }
 
   // ── relay ────────────────────────────────────────────────────────────────────

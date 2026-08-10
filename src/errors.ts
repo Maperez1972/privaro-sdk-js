@@ -46,3 +46,22 @@ export class ProxyUnavailableError extends PrivaroError {
     this.name = "ProxyUnavailableError";
   }
 }
+
+/**
+ * Raised by protectOutput() when the pipeline hasn't opted into
+ * output-direction PII scanning (pipeline.output_scanning_enabled=false).
+ * Enable it in the dashboard: Pipelines → Settings → Output scanning.
+ * A deliberate hard failure, not a silent passthrough — a caller
+ * invoking protectOutput() explicitly wants their LLM's response
+ * scanned, so a disabled pipeline must not pretend to have done that.
+ */
+export class OutputScanningDisabledError extends PrivaroError {
+  constructor(
+    message = "This pipeline has not enabled output-direction PII scanning. " +
+      "Enable output_scanning_enabled for this pipeline in the dashboard " +
+      "(Pipelines → Settings) before calling protectOutput()."
+  ) {
+    super(message);
+    this.name = "OutputScanningDisabledError";
+  }
+}

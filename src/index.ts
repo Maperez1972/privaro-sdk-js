@@ -24,6 +24,8 @@ export type {
   PrivaroClientOptions,
   ProtectOptions,
   ProtectResult,
+  ProtectOutputOptions,
+  ProtectOutputResult,
   Detection,
   EntityType,
   Severity,
@@ -42,12 +44,19 @@ export {
   PolicyBlockError,
   RateLimitError,
   ProxyUnavailableError,
+  OutputScanningDisabledError,
 } from "./errors.js";
 
 // ─── Module-level API (mirrors Python SDK) ───────────────────────────────────
 
 import { PrivaroClient } from "./client.js";
-import type { PrivaroClientOptions, ProtectOptions, ProtectResult } from "./types/index.js";
+import type {
+  PrivaroClientOptions,
+  ProtectOptions,
+  ProtectResult,
+  ProtectOutputOptions,
+  ProtectOutputResult,
+} from "./types/index.js";
 
 let _defaultClient: PrivaroClient | null = null;
 
@@ -79,6 +88,18 @@ const privaro = {
   /** Detect PII without masking (analysis only). */
   async detect(prompt: string): Promise<ProtectResult> {
     return _requireClient().detect(prompt);
+  },
+
+  /**
+   * Scan and mask PII in your own LLM's response text (output direction).
+   * Requires the pipeline to have output scanning enabled — see
+   * PrivaroClient.protectOutput() for details and OutputScanningDisabledError.
+   */
+  async protectOutput(
+    responseText: string,
+    opts?: ProtectOutputOptions
+  ): Promise<ProtectOutputResult> {
+    return _requireClient().protectOutput(responseText, opts);
   },
 
   /** Access the current default client (throws if not initialized). */

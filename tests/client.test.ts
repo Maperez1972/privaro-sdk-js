@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach, jest } from "@jest/globals";
 import { PrivaroClient, AgentRun } from "../src/client.js";
-import { AuthError, PipelineNotFoundError, PrivaroError } from "../src/errors.js";
+import {
+  AuthError,
+  PipelineNotFoundError,
+  PrivaroError,
+  OutputScanningDisabledError,
+} from "../src/errors.js";
 import { randomUUID } from "../src/utils.js";
 
 // ─── Mock fetch ───────────────────────────────────────────────────────────────
@@ -218,6 +223,95 @@ describe("detect()", () => {
     expect(url).toContain("/proxy/detect");
     // detect never masks
     expect(result.protected).toBe("Patient María García");
+  });
+});
+
+// ─── protectOutput() ───────────────────────────────────────────────────────────
+
+const PROTECT_OUTPUT_RESPONSE = {
+  request_id: "req_out_001",
+  protected_response: "Según nuestros registros, [NM-0001] tiene DNI [ID-0001].",
+  detections: [
+    {
+      type: "dni", severity: "critical", action: "tokenised",
+      token: "[ID-0001]", confidence: 0.95, detector: "regex", start: 45, end: 54,
+    },
+  ],
+  stats: {
+    total_detected: 1, total_masked: 1, leaked: 0,
+    coverage_pct: 100, processing_ms: 33, risk_score: 0.7,
+  },
+  audit_log_id: "uuid-output-audit-001",
+  gdpr_compliant: true,
+  scan_mode: "shadow",
+  response_modified: true,
+};
+
+describe("protectOutput()", () => {
+  let client: PrivaroClient;
+  beforeEach(() => {
+    client = new PrivaroClient(VALID_OPTS);
+    mockFetch.mockReset();
+  });
+
+  it("returns empty result for blank response text", async () => {
+    const result = await client.protectOutput("   ");
+    expect(result.protected).toBe("");
+    expect(result.hasPii).toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("calls /proxy/protect-output with response_text and conversation_id", async () => {
+    mockSuccess(PROTECT_OUTPUT_RESPONSE);
+    const result = await client.protectOutput("respuesta del LLM con PII", {
+      conversationId: "conv-1",
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url, opts] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/proxy/protect-output");
+    expect(JSON.parse(opts.body as string)).toMatchObject({
+      pipeline_id: VALID_OPTS.pipelineId,
+      response_text: "respuesta del LLM con PII",
+      conversation_id: "conv-1",
+    });
+
+    expect(result.protected).toBe(PROTECT_OUTPUT_RESPONSE.protected_response);
+    expect(result.total_detected).toBe(1);
+    expect(result.scan_mode).toBe("shadow");
+    expect(result.response_modified).toBe(true);
+    expect(result.gdpr_compliant).toBe(true);
+  });
+
+  it("parses detections and scan_mode='enforce'", async () => {
+    mockSuccess({ ...PROTECT_OUTPUT_RESPONSE, scan_mode: "enforce" });
+    const result = await client.protectOutput("texto");
+    expect(result.detections).toHaveLength(1);
+    expect(result.detections[0].isHighRisk).toBe(true);
+    expect(result.scan_mode).toBe("enforce");
+  });
+
+  it("throws OutputScanningDisabledError when the pipeline hasn't opted in", async () => {
+    mockHttpError(403, {
+      detail: {
+        error: "output_scanning_disabled",
+        message: "This pipeline has not enabled output-direction PII scanning.",
+      },
+    });
+    await expect(client.protectOutput("texto con PII")).rejects.toThrow(
+      OutputScanningDisabledError
+    );
+  });
+
+  it("still throws AuthError on a plain 403 (no output_scanning_disabled detail)", async () => {
+    mockHttpError(403, {});
+    await expect(client.protectOutput("texto")).rejects.toThrow(AuthError);
+  });
+
+  it("summary() returns one-line string", async () => {
+    mockSuccess(PROTECT_OUTPUT_RESPONSE);
+    const result = await client.protectOutput("texto");
+    expect(result.summary()).toMatch(/\[Privaro:output\]/);
   });
 });
 
