@@ -139,6 +139,49 @@ export interface ProtectOutputResult {
   summary(): string;
 }
 
+// ─── Privaro Ingest (Fase 1 of the RAG expansion) ──────────────────────────
+
+/** A single chunk of an already-protected document, ready to embed into
+ *  a vector store. Chunk boundaries never split a Privaro token
+ *  ([XX-0001]) across two chunks — see the backend's chunker.py. */
+export interface DocumentChunk {
+  index: number;
+  text: string;
+  char_start: number;
+  char_end: number;
+}
+
+export interface ProtectDocumentOptions {
+  mode?: "tokenise" | "anonymise" | "block";
+  reversible?: boolean;
+  /** Run Tier 2 (Presidio) in addition to Tier 1 regex — slower on
+   *  large documents but catches names/PII with no adjacent keyword. */
+  useNlp?: boolean;
+  /** Target characters per chunk (64-8192). */
+  chunkSize?: number;
+  /** Your own external reference for this document. */
+  documentId?: string;
+  /** How often to poll job status for an async (large-document)
+   *  request, in milliseconds. Default 2000. */
+  pollIntervalMs?: number;
+  /** Give up waiting after this long and throw — the job keeps running
+   *  server-side regardless. Default 300000 (5 minutes). */
+  pollTimeoutMs?: number;
+}
+
+export interface ProtectDocumentResult {
+  request_id: string;
+  protected_document: string;
+  chunks: DocumentChunk[];
+  detections: Detection[];
+  stats: Record<string, number>;
+  /** Set if the server processed this document asynchronously. */
+  job_id?: string | undefined;
+
+  readonly chunkCount: number;
+  summary(): string;
+}
+
 // ─── Client options ───────────────────────────────────────────────────────────
 
 export interface PrivaroClientOptions {
