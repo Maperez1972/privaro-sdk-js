@@ -32,6 +32,9 @@ export type {
   DetectionAction,
   ProtectionMode,
   DetectorSource,
+  DocumentChunk,
+  ProtectDocumentOptions,
+  ProtectDocumentResult,
   RelayMessage,
   RelayOptions,
   RelayResult,
@@ -56,6 +59,8 @@ import type {
   ProtectResult,
   ProtectOutputOptions,
   ProtectOutputResult,
+  ProtectDocumentOptions,
+  ProtectDocumentResult,
 } from "./types/index.js";
 
 let _defaultClient: PrivaroClient | null = null;
@@ -100,6 +105,17 @@ const privaro = {
     opts?: ProtectOutputOptions
   ): Promise<ProtectOutputResult> {
     return _requireClient().protectOutput(responseText, opts);
+  },
+
+  /**
+   * Protect a whole document before ingesting it into a vector store
+   * for RAG — see PrivaroClient.protectDocument() for details.
+   */
+  async protectDocument(
+    document: string,
+    opts?: ProtectDocumentOptions
+  ): Promise<ProtectDocumentResult> {
+    return _requireClient().protectDocument(document, opts);
   },
 
   /** Access the current default client (throws if not initialized). */

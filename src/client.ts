@@ -5,6 +5,9 @@ import type {
   ProtectOutputOptions,
   ProtectOutputResult,
   Detection,
+  DocumentChunk,
+  ProtectDocumentOptions,
+  ProtectDocumentResult,
   RelayMessage,
   RelayOptions,
   RelayResult,
@@ -397,6 +400,105 @@ export class PrivaroClient {
     );
 
     return makeProtectOutputResult(raw, responseText);
+  }
+
+  // ── protectDocument ──────────────────────────────────────────────────────────
+
+  /**
+   * Protect a WHOLE document before ingesting it into a vector store
+   * for RAG (Privaro Ingest — Fase 1 of the RAG expansion plan), rather
+   * than a single chat prompt. Chunking happens server-side, AFTER
+   * tokenisation — chunk boundaries never split a Privaro token
+   * ([XX-0001]) across two chunks.
+   *
+   * Large documents may be processed asynchronously server-side
+   * (returns { status: "processing", job_id }); this method polls
+   * GET /proxy/protect-document/{jobId} transparently until the result
+   * is ready, so callers always get back a single, finished result —
+   * never a partial/in-progress state.
+   *
+   * @throws PrivaroError if the job fails server-side, or if
+   *   pollTimeoutMs is exceeded (the job keeps running server-side
+   *   regardless — poll GET /proxy/protect-document/{jobId} directly
+   *   yourself if you need to resume watching it after a timeout).
+   *
+   * @example
+   * const result = await client.protectDocument(pdfText, { chunkSize: 512 });
+   * for (const chunk of result.chunks) {
+   *   await vectorStore.upsert(chunk.text, { chunkIndex: chunk.index });
+   * }
+   */
+  async protectDocument(
+    document: string,
+    opts: ProtectDocumentOptions = {}
+  ): Promise<ProtectDocumentResult> {
+    const pollIntervalMs = opts.pollIntervalMs ?? 2000;
+    const pollTimeoutMs = opts.pollTimeoutMs ?? 300_000;
+
+    let raw = await this._request<Record<string, unknown>>(
+      "POST",
+      "/proxy/protect-document",
+      {
+        pipeline_id: this.pipelineId,
+        document,
+        document_id: opts.documentId,
+        options: {
+          mode: opts.mode ?? this.defaultMode,
+          reversible: opts.reversible ?? true,
+          use_nlp: opts.useNlp ?? true,
+          chunk_size: opts.chunkSize ?? 512,
+        },
+      }
+    );
+
+    if (raw.status === "processing" && raw.job_id) {
+      const jobId = raw.job_id as string;
+      const deadline = Date.now() + pollTimeoutMs;
+      while (true) {
+        if (Date.now() >= deadline) {
+          throw new PrivaroError(
+            `protectDocument job ${jobId} did not complete within ${pollTimeoutMs}ms — ` +
+              `it may still finish server-side; increase pollTimeoutMs or check ` +
+              `GET /proxy/protect-document/${jobId} directly.`
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+        raw = await this._request<Record<string, unknown>>(
+          "GET",
+          `/proxy/protect-document/${jobId}`
+        );
+        if (raw.status !== "processing") break;
+      }
+    }
+
+    if (raw.status === "failed") {
+      throw new PrivaroError(
+        `protectDocument failed: ${raw.degraded_reason ?? "unknown error"}`
+      );
+    }
+
+    const chunks = (raw.chunks as DocumentChunk[] | undefined) ?? [];
+    const detections = (raw.detections as Detection[] | undefined) ?? [];
+    const stats = (raw.stats as Record<string, number> | undefined) ?? {};
+
+    return {
+      request_id: (raw.request_id as string) ?? "",
+      protected_document: (raw.protected_document as string) ?? "",
+      chunks,
+      detections,
+      stats,
+      job_id: raw.job_id as string | undefined,
+      get chunkCount() {
+        return chunks.length;
+      },
+      summary() {
+        return (
+          `[Privaro:ingest] ${stats.total_detected ?? 0} entities detected, ` +
+          `${chunks.length} chunks, ${stats.char_count ?? 0} chars, ` +
+          `${stats.processing_ms ?? 0}ms`
+        );
+      },
+    };
   }
 
   // ── relay ────────────────────────────────────────────────────────────────────

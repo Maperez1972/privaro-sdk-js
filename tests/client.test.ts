@@ -315,6 +315,112 @@ describe("protectOutput()", () => {
   });
 });
 
+// ─── protectDocument() ──────────────────────────────────────────────────────
+
+describe("protectDocument()", () => {
+  let client: PrivaroClient;
+  beforeEach(() => {
+    client = new PrivaroClient(VALID_OPTS);
+    mockFetch.mockReset();
+  });
+
+  const SYNC_RESPONSE = {
+    request_id: "req_abc",
+    status: "completed",
+    protected_document: "Hola [NM-0001]",
+    chunks: [{ index: 0, text: "Hola [NM-0001]", char_start: 0, char_end: 14 }],
+    detections: [
+      {
+        type: "full_name",
+        severity: "low",
+        action: "tokenised",
+        token: "[NM-0001]",
+        confidence: 0.8,
+        detector: "regex",
+        start: 5,
+        end: 13,
+      },
+    ],
+    stats: { total_detected: 1, char_count: 14, chunk_count: 1, processing_ms: 12 },
+  };
+
+  it("returns immediately for a synchronous (small document) response", async () => {
+    mockSuccess(SYNC_RESPONSE);
+    const result = await client.protectDocument("Hola Juan Perez");
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url, opts] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/proxy/protect-document");
+    expect(JSON.parse(opts.body as string)).toMatchObject({
+      pipeline_id: VALID_OPTS.pipelineId,
+      document: "Hola Juan Perez",
+    });
+
+    expect(result.protected_document).toBe("Hola [NM-0001]");
+    expect(result.chunkCount).toBe(1);
+    expect(result.chunks[0].text).toBe("Hola [NM-0001]");
+    expect(result.detections[0].type).toBe("full_name");
+  });
+
+  it("polls the job until completion for an async (large document) response", async () => {
+    mockSuccess({ request_id: "req_x", status: "processing", job_id: "job_999", estimated_seconds: 10 });
+    mockSuccess({ request_id: "req_x", status: "processing", job_id: "job_999" });
+    mockSuccess({
+      request_id: "req_x",
+      status: "completed",
+      job_id: "job_999",
+      protected_document: "Documento largo protegido [NM-0001]",
+      chunks: [{ index: 0, text: "chunk1", char_start: 0, char_end: 6 }],
+      detections: [],
+      stats: { total_detected: 1, char_count: 100000, chunk_count: 1, processing_ms: 5000 },
+    });
+
+    const result = await client.protectDocument("documento muy largo".repeat(10000), {
+      pollIntervalMs: 1,
+    });
+
+    expect(result.job_id).toBe("job_999");
+    expect(result.protected_document).toBe("Documento largo protegido [NM-0001]");
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+
+    const [postUrl, postOpts] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(postUrl).toContain("/proxy/protect-document");
+    expect(postOpts.method).toBe("POST");
+
+    const [getUrl, getOpts] = mockFetch.mock.calls[1] as [string, RequestInit];
+    expect(getUrl).toContain("/proxy/protect-document/job_999");
+    expect(getOpts.method).toBe("GET");
+  });
+
+  it("throws PrivaroError when the job ends up failed", async () => {
+    mockSuccess({ request_id: "req_y", status: "processing", job_id: "job_fail" });
+    mockSuccess({ status: "failed", degraded_reason: "detector_timeout" });
+
+    await expect(
+      client.protectDocument("doc", { pollIntervalMs: 1 })
+    ).rejects.toThrow(PrivaroError);
+  });
+
+  it("throws PrivaroError when the polling timeout is exceeded", async () => {
+    mockSuccess({ request_id: "req_z", status: "processing", job_id: "job_stuck" });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: "processing", job_id: "job_stuck" }),
+    } as Response);
+
+    await expect(
+      client.protectDocument("doc", { pollIntervalMs: 5, pollTimeoutMs: 20 })
+    ).rejects.toThrow(PrivaroError);
+  });
+
+  it("summary() returns one-line string", async () => {
+    mockSuccess(SYNC_RESPONSE);
+    const result = await client.protectDocument("Hola Juan Perez");
+    expect(result.summary()).toMatch(/\[Privaro:ingest\]/);
+  });
+});
+
 // ─── AgentRun ─────────────────────────────────────────────────────────────────
 
 describe("AgentRun", () => {
