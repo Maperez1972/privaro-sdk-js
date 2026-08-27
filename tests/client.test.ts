@@ -421,6 +421,70 @@ describe("protectDocument()", () => {
   });
 });
 
+// ─── protectRetrieval() ─────────────────────────────────────────────────────
+
+describe("protectRetrieval()", () => {
+  let client: PrivaroClient;
+  beforeEach(() => {
+    client = new PrivaroClient(VALID_OPTS);
+    mockFetch.mockReset();
+  });
+
+  const RETRIEVAL_RESPONSE = {
+    request_id: "req_ret1",
+    allowed_chunks: [
+      { id: "c1", protected_text: "El paciente [NM-0001] fue atendido.", detections_count: 1, from_cache: false },
+      { id: "c3", protected_text: "El paciente [NM-0001] fue atendido.", detections_count: 1, from_cache: true },
+    ],
+    blocked_chunks: [
+      { id: "c2", reason: "access_denied", detail: "requester role 'developer' not in chunk's allowed_roles" },
+    ],
+    stats: { chunks_in: 3, chunks_allowed: 2, chunks_blocked: 1, cache_hits: 1, cache_hit_rate: 0.333, total_detected: 2, processing_ms: 45 },
+  };
+
+  it("parses allowed and blocked chunks, and sends the correct payload shape", async () => {
+    mockSuccess(RETRIEVAL_RESPONSE);
+
+    const chunks = [
+      { id: "c1", text: "El paciente Juan Perez fue atendido." },
+      { id: "c2", text: "Info confidencial.", allowedRoles: ["admin"] },
+      { id: "c3", text: "El paciente Juan Perez fue atendido." },
+    ];
+    const result = await client.protectRetrieval(chunks, { requesterRole: "developer" });
+
+    expect(result.allowed_chunks).toHaveLength(2);
+    expect(result.blocked_chunks).toHaveLength(1);
+    expect(result.allowed_chunks[0].id).toBe("c1");
+    expect(result.allowed_chunks[1].from_cache).toBe(true);
+    expect(result.blocked_chunks[0].reason).toBe("access_denied");
+
+    const [url, opts] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/proxy/protect-retrieval");
+    const body = JSON.parse(opts.body as string);
+    expect(body.requester.role).toBe("developer");
+    expect(body.chunks).toHaveLength(3);
+    expect(body.chunks[1].allowed_roles).toEqual(["admin"]);
+  });
+
+  it("summary() returns one-line string", async () => {
+    mockSuccess(RETRIEVAL_RESPONSE);
+    const result = await client.protectRetrieval([{ id: "c1", text: "texto" }]);
+    expect(result.summary()).toMatch(/\[Privaro:retrieval\]/);
+  });
+
+  it("handles an empty allowed_chunks / blocked_chunks response gracefully", async () => {
+    mockSuccess({
+      request_id: "req_empty",
+      allowed_chunks: [],
+      blocked_chunks: [],
+      stats: { chunks_in: 0, chunks_allowed: 0, chunks_blocked: 0 },
+    });
+    const result = await client.protectRetrieval([]);
+    expect(result.allowed_chunks).toEqual([]);
+    expect(result.blocked_chunks).toEqual([]);
+  });
+});
+
 // ─── AgentRun ─────────────────────────────────────────────────────────────────
 
 describe("AgentRun", () => {

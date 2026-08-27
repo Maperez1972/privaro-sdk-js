@@ -35,6 +35,11 @@ export type {
   DocumentChunk,
   ProtectDocumentOptions,
   ProtectDocumentResult,
+  RetrievalChunkInput,
+  ProtectRetrievalOptions,
+  ProtectRetrievalResult,
+  AllowedChunk,
+  BlockedChunk,
   RelayMessage,
   RelayOptions,
   RelayResult,
@@ -61,6 +66,9 @@ import type {
   ProtectOutputResult,
   ProtectDocumentOptions,
   ProtectDocumentResult,
+  RetrievalChunkInput,
+  ProtectRetrievalOptions,
+  ProtectRetrievalResult,
 } from "./types/index.js";
 
 let _defaultClient: PrivaroClient | null = null;
@@ -116,6 +124,17 @@ const privaro = {
     opts?: ProtectDocumentOptions
   ): Promise<ProtectDocumentResult> {
     return _requireClient().protectDocument(document, opts);
+  },
+
+  /**
+   * Protect a batch of retrieved chunks before they enter an LLM's
+   * context — see PrivaroClient.protectRetrieval() for details.
+   */
+  async protectRetrieval(
+    chunks: RetrievalChunkInput[],
+    opts?: ProtectRetrievalOptions
+  ): Promise<ProtectRetrievalResult> {
+    return _requireClient().protectRetrieval(chunks, opts);
   },
 
   /** Access the current default client (throws if not initialized). */
