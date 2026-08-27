@@ -8,6 +8,11 @@ import type {
   DocumentChunk,
   ProtectDocumentOptions,
   ProtectDocumentResult,
+  RetrievalChunkInput,
+  ProtectRetrievalOptions,
+  ProtectRetrievalResult,
+  AllowedChunk,
+  BlockedChunk,
   RelayMessage,
   RelayOptions,
   RelayResult,
@@ -496,6 +501,87 @@ export class PrivaroClient {
           `[Privaro:ingest] ${stats.total_detected ?? 0} entities detected, ` +
           `${chunks.length} chunks, ${stats.char_count ?? 0} chars, ` +
           `${stats.processing_ms ?? 0}ms`
+        );
+      },
+    };
+  }
+
+  // ── protectRetrieval ─────────────────────────────────────────────────────────
+
+  /**
+   * Protect a BATCH of retrieved chunks (e.g. from a vector store
+   * similarity search) right before they enter an LLM's context —
+   * Privaro Retrieval Guard (Fase 2 of the RAG expansion). Defense in
+   * depth after Privaro Ingest: catches PII that slipped past ingestion,
+   * or lives in a vector store never run through it, and enforces
+   * per-chunk access control based on the requester's role.
+   *
+   * Cached server-side by content hash — retrieving the same chunk text
+   * repeatedly (a common RAG pattern) skips re-running detection on
+   * subsequent calls.
+   *
+   * Unlike protectDocument(), this fails CLOSED per chunk on a detection
+   * error/timeout: that chunk is returned in .blocked_chunks
+   * (reason="detector_error"/"detector_timeout") rather than passed
+   * through unprotected — a batch of unrelated chunks must never let one
+   * chunk's failure silently leak raw text into an LLM prompt just
+   * because its neighbours succeeded.
+   *
+   * @example
+   * const results = await vectorStore.similaritySearch(query);
+   * const guarded = await client.protectRetrieval(
+   *   results.map(r => ({ id: r.id, text: r.text })),
+   *   { requesterRole: "support-agent" }
+   * );
+   * const context = guarded.allowed_chunks.map(c => c.protected_text).join("\n");
+   */
+  async protectRetrieval(
+    chunks: RetrievalChunkInput[],
+    opts: ProtectRetrievalOptions = {}
+  ): Promise<ProtectRetrievalResult> {
+    const raw = await this._request<Record<string, unknown>>(
+      "POST",
+      "/proxy/protect-retrieval",
+      {
+        pipeline_id: this.pipelineId,
+        chunks: chunks.map((c) => ({
+          id: c.id,
+          text: c.text,
+          allowed_roles: c.allowedRoles ?? null,
+        })),
+        requester: {
+          user_id: opts.requesterUserId ?? null,
+          role: opts.requesterRole ?? "developer",
+        },
+        options: {
+          mode: opts.mode ?? this.defaultMode,
+          use_nlp: opts.useNlp ?? true,
+        },
+      }
+    );
+
+    const allowed = ((raw.allowed_chunks as AllowedChunk[] | undefined) ?? []).map((c) => ({
+      id: c.id,
+      protected_text: c.protected_text,
+      detections_count: c.detections_count,
+      from_cache: c.from_cache ?? false,
+    }));
+    const blocked = ((raw.blocked_chunks as BlockedChunk[] | undefined) ?? []).map((c) => ({
+      id: c.id,
+      reason: c.reason,
+      detail: c.detail,
+    }));
+    const stats = (raw.stats as Record<string, number> | undefined) ?? {};
+
+    return {
+      request_id: (raw.request_id as string) ?? "",
+      allowed_chunks: allowed,
+      blocked_chunks: blocked,
+      stats,
+      summary() {
+        return (
+          `[Privaro:retrieval] ${allowed.length} allowed, ${blocked.length} blocked, ` +
+          `${stats.cache_hits ?? 0} cache hits, ${stats.processing_ms ?? 0}ms`
         );
       },
     };

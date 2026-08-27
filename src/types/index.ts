@@ -182,6 +182,60 @@ export interface ProtectDocumentResult {
   summary(): string;
 }
 
+// ─── Privaro Retrieval Guard (Fase 2 of the RAG expansion) ─────────────────
+
+/** A single chunk to protect before it enters an LLM's context — e.g.
+ *  right after a vector store similarity search, before you stuff the
+ *  results into a RAG prompt. */
+export interface RetrievalChunkInput {
+  id: string;
+  text: string;
+  /** Optional per-chunk access control. If omitted, the chunk is
+   *  visible to any requester. */
+  allowedRoles?: string[] | undefined;
+}
+
+export interface ProtectRetrievalOptions {
+  mode?: "tokenise" | "anonymise" | "block";
+  /** Run Tier 2 (Presidio) in addition to Tier 1 regex. */
+  useNlp?: boolean;
+  /** The role making this retrieval request — checked against each
+   *  chunk's allowedRoles, if set. */
+  requesterRole?: string;
+  /** Echoed into audit logs, not used for access control directly. */
+  requesterUserId?: string;
+}
+
+/** A chunk that passed access control and was protected (tokenised). */
+export interface AllowedChunk {
+  id: string;
+  protected_text: string;
+  detections_count: number;
+  from_cache: boolean;
+}
+
+/** A chunk withheld from the caller — either access-denied (its
+ *  allowedRoles didn't include the requester's role) or a detection
+ *  failure. Retrieval Guard fails CLOSED per chunk, unlike
+ *  protectDocument()'s whole-document fail-open — a batch of unrelated
+ *  chunks must never let one chunk's detection failure silently pass
+ *  raw, unprotected text into an LLM prompt just because its
+ *  neighbours in the same batch succeeded. */
+export interface BlockedChunk {
+  id: string;
+  reason: string;
+  detail?: string | undefined;
+}
+
+export interface ProtectRetrievalResult {
+  request_id: string;
+  allowed_chunks: AllowedChunk[];
+  blocked_chunks: BlockedChunk[];
+  stats: Record<string, number>;
+
+  summary(): string;
+}
+
 // ─── Client options ───────────────────────────────────────────────────────────
 
 export interface PrivaroClientOptions {
