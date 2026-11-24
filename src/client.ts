@@ -327,6 +327,23 @@ export class PrivaroClient {
     return makeProtectResult(raw, prompt);
   }
 
+  // ── detokenize ───────────────────────────────────────────────────────────────
+
+  /**
+   * Reverse every Privaro token ([NM-0001] …) found in `text`, scoped to the
+   * conversation that produced them. `conversationId` MUST be the same one
+   * passed to protect(). Tokens that can't be found are left as-is.
+   */
+  async detokenize(text: string, opts: { conversationId: string }): Promise<string> {
+    if (!text) return text;
+    const raw = await this._request<Record<string, unknown>>("POST", "/proxy/detokenize", {
+      pipeline_id: this.pipelineId,
+      text,
+      conversation_id: opts.conversationId,
+    });
+    return (raw.detokenized_text as string) ?? text;
+  }
+
   // ── detect ───────────────────────────────────────────────────────────────────
 
   /**

@@ -1,6 +1,6 @@
 {
   "name": "privaro-sdk",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Privacy Infrastructure for Enterprise AI — iCommunity Labs",
   "author": "iCommunity Labs <hola@privaro.ai>",
   "license": "MIT",
@@ -65,6 +65,7 @@
   },
   "devDependencies": {
     "@jest/globals": "^29.7.0",
+    "@langchain/core": "^0.3.80",
     "@types/node": "^18.0.0",
     "jest": "^29.0.0",
     "ts-jest": "^29.4.9",
@@ -74,7 +75,8 @@
   "peerDependencies": {
     "ai": ">=3.0.0",
     "langchain": ">=0.2.0",
-    "openai": ">=4.0.0"
+    "openai": ">=4.0.0",
+    "@langchain/core": ">=0.2.0"
   },
   "peerDependenciesMeta": {
     "openai": {
@@ -84,6 +86,9 @@
       "optional": true
     },
     "ai": {
+      "optional": true
+    },
+    "@langchain/core": {
       "optional": true
     }
   }

@@ -1,127 +1,119 @@
 /**
- * Privaro × Vercel AI SDK adapter
+ * Privaro × Vercel AI SDK adapter (ai >= 4; LanguageModel middleware).
  *
- * privaroMiddleware wraps any Vercel AI SDK model with PII protection.
- * Compatible with streamText, generateText, and useChat.
+ * The LLM only ever sees tokens ([NM-0001]); your app gets the real values back,
+ * for generateText, streamText and generateObject.
  *
  * @example
  * import { openai } from "@ai-sdk/openai";
- * import { generateText } from "ai";
- * import { PrivaroClient } from "@privaro/sdk";
- * import { privaroMiddleware } from "@privaro/sdk/adapters/vercel-ai";
+ * import { generateText, wrapLanguageModel } from "ai";
+ * import { PrivaroClient } from "privaro-sdk";
+ * import { privaroMiddleware } from "privaro-sdk/adapters/vercel-ai";
  *
- * const privaro = new PrivaroClient({
- *   apiKey: process.env.PRIVARO_API_KEY!,
- *   pipelineId: process.env.PRIVARO_PIPELINE_ID!,
- * });
+ * const privaro = new PrivaroClient({ apiKey: process.env.PRIVARO_API_KEY!, pipelineId: process.env.PRIVARO_PIPELINE_ID! });
+ * const model = wrapLanguageModel({ model: openai("gpt-4o"), middleware: privaroMiddleware(privaro) });
+ * const { text } = await generateText({ model, prompt: "Analiza el contrato de María García, DNI 34521789X" });
  *
- * const { text } = await generateText({
- *   model: openai("gpt-4o"),
- *   prompt: "Analiza contrato de María García, DNI 34521789X",
- *   experimental_transform: privaroMiddleware(privaro),
- * });
+ * NOTE: the previous `experimental_transform: privaroMiddleware(...)` usage never
+ * applied masking; use wrapLanguageModel as above.
  */
 
 import type { PrivaroClient } from "../client.js";
 import type { ProtectOptions } from "../types/index.js";
 import { randomUUID } from "../utils.js";
 
-interface VercelAIMessage {
-  role: string;
-  content: string | Array<{ type: string; text?: string }>;
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type AnyRec = Record<string, any>;
+
+export interface PrivaroMiddlewareOptions extends ProtectOptions {
+  /** Reveal tokens in the response (default true). */
+  deTokeniseResponse?: boolean;
+  /** Scope for tokens. Default: one random id per middleware instance, so the same value keeps the same token across turns. */
+  conversationId?: string;
 }
 
-interface VercelParams {
-  prompt?: VercelAIMessage[];
-  messages?: VercelAIMessage[];
-  [key: string]: unknown;
+/** Longest prefix of `buf` that cannot end inside a [XX-0001] token. */
+export function safeFlushPoint(buf: string): number {
+  const i = buf.lastIndexOf("[");
+  if (i === -1 || buf.indexOf("]", i) !== -1) return buf.length;
+  return buf.length - i > 16 ? buf.length : i; // an open bracket older than 16 chars is not a token
 }
 
-interface LanguageModelMiddleware {
-  transformParams?: (options: {
-    params: VercelParams;
-  }) => Promise<{ params: VercelParams }>;
-  wrapGenerate?: (options: {
-    doGenerate: () => Promise<{ text?: string; [key: string]: unknown }>;
-  }) => Promise<{ text?: string; [key: string]: unknown }>;
-}
+export function privaroMiddleware(privaro: PrivaroClient, opts: PrivaroMiddlewareOptions = {}) {
+  const reveal = opts.deTokeniseResponse ?? true;
+  const conversationId = opts.conversationId ?? randomUUID();
+  const { deTokeniseResponse: _d, conversationId: _c, ...protectOpts } = opts;
+  void _d; void _c;
 
-/**
- * Create a Vercel AI SDK middleware that protects PII in prompts
- * and de-tokenises LLM responses.
- */
-export function privaroMiddleware(
-  privaro: PrivaroClient,
-  opts: ProtectOptions & { deTokeniseResponse?: boolean } = {}
-): LanguageModelMiddleware {
-  const deTokenise = opts.deTokeniseResponse ?? true;
-  let conversationId = randomUUID();
-  let lastConversationId = conversationId;
+  const mask = async (text: string): Promise<string> =>
+    text?.trim() ? (await privaro.protect(text, { ...protectOpts, conversationId, includeDetections: false })).protected : text;
+  const unmask = (text: string): Promise<string> => privaro.detokenize(text, { conversationId });
+
+  async function maskPrompt(prompt: AnyRec[] | undefined): Promise<AnyRec[] | undefined> {
+    if (!prompt) return prompt;
+    return Promise.all(
+      prompt.map(async (m) => {
+        if (typeof m.content === "string") return { ...m, content: await mask(m.content) };
+        if (Array.isArray(m.content))
+          return {
+            ...m,
+            content: await Promise.all(
+              m.content.map(async (p: AnyRec) =>
+                p?.type === "text" ? { ...p, text: await mask(p.text) }
+                : p?.type === "tool-result" && typeof p.output?.value === "string" ? { ...p, output: { ...p.output, value: await mask(p.output.value) } }
+                : p
+              )
+            ),
+          };
+        return m;
+      })
+    );
+  }
 
   return {
-    async transformParams({ params }) {
-      conversationId = randomUUID();
-      lastConversationId = conversationId;
-
-      const messages: VercelAIMessage[] = params.messages ?? params.prompt ?? [];
-
-      const protected_messages = await Promise.all(
-        messages.map(async (msg: VercelAIMessage) => {
-          if (msg.role !== "user" && msg.role !== "system") return msg;
-
-          const text =
-            typeof msg.content === "string"
-              ? msg.content
-              : (msg.content as Array<{ type: string; text?: string }>)
-                  .filter((c) => c.type === "text")
-                  .map((c) => c.text ?? "")
-                  .join("\n");
-
-          if (!text.trim()) return msg;
-
-          const result = await privaro.protect(text, {
-            ...opts,
-            agentMode: true,
-            conversationId,
-          });
-
-          return {
-            ...msg,
-            content:
-              typeof msg.content === "string"
-                ? result.protected
-                : (msg.content as Array<{ type: string; text?: string }>).map((c) =>
-                    c.type === "text" ? { ...c, text: result.protected } : c
-                  ),
-          };
-        })
-      );
-
-      if (params.messages) {
-        return { params: { ...params, messages: protected_messages } };
-      }
-      return { params: { ...params, prompt: protected_messages } };
+    transformParams: async ({ params }: { params: AnyRec }) => {
+      const out: AnyRec = { ...params };
+      if (params.prompt) out.prompt = await maskPrompt(params.prompt);
+      if (params.messages) out.messages = await maskPrompt(params.messages);
+      return out;
     },
 
-    async wrapGenerate({ doGenerate }) {
-      const result = await doGenerate();
+    wrapGenerate: async ({ doGenerate }: { doGenerate: () => Promise<AnyRec> }) => {
+      const res = await doGenerate();
+      if (!reveal) return res;
+      if (typeof res.text === "string") res.text = await unmask(res.text); // ai v4
+      if (Array.isArray(res.content))                                      // ai v5+
+        res.content = await Promise.all(res.content.map(async (p: AnyRec) => (p?.type === "text" ? { ...p, text: await unmask(p.text) } : p)));
+      return res;
+    },
 
-      if (deTokenise && typeof result.text === "string") {
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const req = (privaro as any)._request.bind(privaro) as (m: string, p: string, b: unknown) => Promise<Record<string, unknown>>;
-          const revealed = await req("POST", "/agent/reveal", {
-            pipeline_id: privaro.pipelineId,
-            conversation_id: lastConversationId,
-            text: result.text,
-          });
-          result.text = (revealed.revealed as string) ?? result.text;
-        } catch {
-          // Non-fatal — return original response
-        }
-      }
-
-      return result;
+    wrapStream: async ({ doStream }: { doStream: () => Promise<AnyRec> }) => {
+      const { stream, ...rest } = await doStream();
+      if (!reveal) return { stream, ...rest };
+      const bufs = new Map<string, string>(); // text-part id -> pending text
+      const field = (c: AnyRec) => (c.delta !== undefined ? "delta" : "textDelta");
+      const emit = async (ctrl: TransformStreamDefaultController, c: AnyRec, text: string) => {
+        if (text) ctrl.enqueue({ ...c, [field(c)]: await unmask(text) });
+      };
+      const flushAll = async (ctrl: TransformStreamDefaultController) => {
+        for (const [id, b] of bufs) if (b) { await emit(ctrl, { type: "text-delta", id, delta: "" }, b); bufs.set(id, ""); }
+      };
+      const ts = new TransformStream({
+        async transform(c: AnyRec, ctrl) {
+          if (c.type === "text-delta") {
+            const id = c.id ?? "_";
+            const buf = (bufs.get(id) ?? "") + (c.delta ?? c.textDelta ?? "");
+            const k = safeFlushPoint(buf);
+            bufs.set(id, buf.slice(k));
+            await emit(ctrl, c, buf.slice(0, k));
+          } else if (c.type === "text-end" || c.type === "finish") {
+            await flushAll(ctrl);
+            ctrl.enqueue(c);
+          } else ctrl.enqueue(c);
+        },
+        async flush(ctrl) { await flushAll(ctrl); },
+      });
+      return { stream: (stream as ReadableStream).pipeThrough(ts), ...rest };
     },
   };
 }

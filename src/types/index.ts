@@ -17,7 +17,7 @@ export type EntityType =
 
 export type Severity = "critical" | "high" | "medium" | "low";
 export type DetectionAction = "tokenised" | "anonymised" | "blocked" | "detected";
-export type ProtectionMode = "tokenise" | "anonymise" | "block";
+export type ProtectionMode = "tokenise" | "mask" | "anonymise" | "block";
 export type DetectorSource = "regex" | "presidio" | "custom";
 
 export interface Detection {
@@ -152,7 +152,7 @@ export interface DocumentChunk {
 }
 
 export interface ProtectDocumentOptions {
-  mode?: "tokenise" | "anonymise" | "block";
+  mode?: "tokenise" | "mask" | "anonymise" | "block";
   reversible?: boolean;
   /** Run Tier 2 (Presidio) in addition to Tier 1 regex — slower on
    *  large documents but catches names/PII with no adjacent keyword. */
@@ -196,7 +196,7 @@ export interface RetrievalChunkInput {
 }
 
 export interface ProtectRetrievalOptions {
-  mode?: "tokenise" | "anonymise" | "block";
+  mode?: "tokenise" | "mask" | "anonymise" | "block";
   /** Run Tier 2 (Presidio) in addition to Tier 1 regex. */
   useNlp?: boolean;
   /** The role making this retrieval request — checked against each

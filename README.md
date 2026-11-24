@@ -194,40 +194,38 @@ console.log(response.choices[0].message.content); // real names restored in resp
 console.log(response._privaro?.pii_detected);      // 2
 ```
 
-### LangChain — callback handler
+### LangChain — Runnables (recommended)
 
-Attach to any LangChain LLM or chain.
+Mask the input, run your chain, reveal the output — one conversation shared by both ends.
+Requires `@langchain/core`.
 
 ```ts
 import { ChatOpenAI } from "@langchain/openai";
+import { StringOutputParser } from "@langchain/core/output_parsers";
 import { PrivaroClient } from "privaro-sdk";
-import { PrivaroCallbackHandler } from "privaro-sdk/adapters/langchain";
+import { privaroGuard, privaroRetriever } from "privaro-sdk/adapters/langchain";
 
 const privaro = new PrivaroClient({
   apiKey: process.env.PRIVARO_API_KEY!,
   pipelineId: process.env.PRIVARO_PIPELINE_ID!,
 });
 
-const handler = new PrivaroCallbackHandler(privaro);
+const chain = privaroGuard(prompt.pipe(new ChatOpenAI({ model: "gpt-4o" })).pipe(new StringOutputParser()), privaro);
+await chain.invoke({ question: "Revisa el contrato de María García, DNI 34521789X" });
 
-const llm = new ChatOpenAI({
-  modelName: "gpt-4o",
-  callbacks: [handler],
-});
-
-// PII tokenised automatically before reaching OpenAI
-const response = await llm.invoke(
-  "Revisa el contrato de María García, DNI 34521789X"
-);
+// RAG: mask retrieved chunks (and enforce `allowed_roles` metadata) before they reach the LLM
+const retriever = privaroRetriever(vectorStore.asRetriever(), privaro, "support-agent");
 ```
+
+> `PrivaroCallbackHandler` is **deprecated**: LangChain callbacks cannot rewrite what a model receives, so it does not protect chat models.
 
 ### Vercel AI SDK — middleware
 
-Works with `generateText`, `streamText`, and `useChat`.
+Works with `generateText`, `streamText` and `generateObject` (ai >= 4). Streaming reveals tokens even when they are split across chunks.
 
 ```ts
 import { openai } from "@ai-sdk/openai";
-import { generateText } from "ai";
+import { generateText, wrapLanguageModel } from "ai";
 import { PrivaroClient } from "privaro-sdk";
 import { privaroMiddleware } from "privaro-sdk/adapters/vercel-ai";
 
@@ -236,13 +234,27 @@ const privaro = new PrivaroClient({
   pipelineId: process.env.PRIVARO_PIPELINE_ID!,
 });
 
-const { text } = await generateText({
-  model: openai("gpt-4o"),
-  prompt: "Analiza el perfil de Carlos Gómez, DNI 45678901C",
-  experimental_transform: privaroMiddleware(privaro),
-});
-// PII protected before OpenAI, de-tokenised in response
+const model = wrapLanguageModel({ model: openai("gpt-4o"), middleware: privaroMiddleware(privaro) });
+const { text } = await generateText({ model, prompt: "Analiza el perfil de Carlos Gómez, DNI 45678901C" });
+// the LLM only sees [NM-0001]/[ID-0001]; `text` has the real values back
 ```
+
+### Any OpenAI-compatible client — `base_url` swap
+
+No SDK needed: point any OpenAI-compatible client at Privaro.
+
+```ts
+const client = new OpenAI({
+  baseURL: "https://privaro-proxy-production.up.railway.app/v1",
+  apiKey: process.env.PRIVARO_API_KEY,                       // prvr_… (not the provider key)
+  defaultHeaders: { "X-Privaro-Pipeline": process.env.PRIVARO_PIPELINE_ID! },
+});
+```
+Optional headers: `X-Privaro-Mode` (`tokenise` | `mask` | `block`), `X-Privaro-Conversation` (uuid). Streaming supported. Your LLM provider key must be configured in Privaro (BYOK). Tool-calling is not proxied by this endpoint yet.
+
+### `client.detokenize(text, { conversationId })`
+
+Reverse Privaro tokens using the same `conversationId` that produced them (`protect(..., { conversationId })`).
 
 ---
 
@@ -345,6 +357,9 @@ try {
 | `health_record` | critical | SIP/TSI card numbers |
 | `ip_address` | medium | 192.168.1.45 |
 | `date_of_birth` | medium | nacido 14/03/1978 |
+| `national_id` | critical | IT codice fiscale, FR NIR, DE Steuer-ID, NL BSN, PL PESEL, PT NIF, BE RRN, SE personnummer, UK NINO (checksum-validated) |
+| `tax_id` | high | ES CIF, IT P.IVA, FR SIREN/SIRET, EU VAT numbers (checksum-validated) |
+| `secret` | critical | API keys & tokens (AWS, GitHub, OpenAI, Anthropic, Stripe, Slack…), JWT, private keys, connection strings |
 | `session_id` | low | sess_8f3a2b1c |
 | `policy_number` | high | nº póliza 00123456 |
 
