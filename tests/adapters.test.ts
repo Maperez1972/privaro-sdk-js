@@ -20,6 +20,16 @@ mockFetch.mockImplementation((async (url: any, init: any) => {
 
 const client = new PrivaroClient({ apiKey: "prvr_" + "a".repeat(40), pipelineId: "p1" });
 
+describe("protectToolOutput", () => {
+  it("posts output + conversation and maps the response", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ protected_output: { n: "[NM-0001]" }, detections_count: 1, fields_protected: ["n"], audit_log_id: "a" }) } as Response);
+    const r = await client.protectToolOutput({ n: "Ana" }, { conversationId: "c1", toolName: "crm" });
+    expect(r.protectedOutput).toEqual({ n: "[NM-0001]" });
+    expect(r.fieldsProtected).toEqual(["n"]);
+    const last = calls.at(-1)!; void last;
+  });
+});
+
 describe("detokenize", () => {
   it("sends conversation_id and returns text", async () => {
     expect(await client.detokenize("Hola [NM-0001]", { conversationId: "c1" })).toBe("Hola Ana");

@@ -3,6 +3,7 @@
 ## 0.7.0 — 2026-11-24
 
 - **New** `client.detokenize(text, { conversationId })` (POST /proxy/detokenize).
+- **New** `client.protectToolOutput(output, { conversationId, toolName })` (POST /proxy/protect-tool-output) — protects tool/function results (JSON or text), same shape back.
 - **Fixed** Vercel AI adapter: now a real `wrapLanguageModel` middleware (`transformParams` returns params, `wrapGenerate`, and **`wrapStream`** with token reassembly across chunks). The previous `experimental_transform` usage never applied masking.
 - **New** LangChain Runnables: `privaroGuard`, `privaroMask`, `privaroUnmask`, `privaroRetriever` (RAG masking with `allowed_roles`). `PrivaroCallbackHandler` is **deprecated** — callbacks cannot rewrite model input, so it did not protect chat models.
 - `mode: "mask"` accepted (alias of `anonymise`, irreversible masking).

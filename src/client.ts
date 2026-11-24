@@ -327,6 +327,36 @@ export class PrivaroClient {
     return makeProtectResult(raw, prompt);
   }
 
+  // ── protectToolOutput ────────────────────────────────────────────────────────
+
+  /**
+   * Protect what a tool/function returned before it goes back into the LLM's
+   * context. JSON (object, array or JSON string) is protected field by field and
+   * returned in the SAME shape; plain text is protected as a whole.
+   * `conversationId` must match the one you later pass to detokenize().
+   *
+   * @example
+   * const r = await client.protectToolOutput(await crm.lookup(id), { toolName: "crm_lookup", conversationId });
+   * messages.push({ role: "tool", tool_call_id, content: JSON.stringify(r.protectedOutput) });
+   */
+  async protectToolOutput(
+    output: unknown,
+    opts: { conversationId: string; toolName?: string }
+  ): Promise<{ protectedOutput: unknown; detectionsCount: number; fieldsProtected: string[]; auditLogId?: string }> {
+    const raw = await this._request<Record<string, unknown>>("POST", "/proxy/protect-tool-output", {
+      pipeline_id: this.pipelineId,
+      output,
+      tool_name: opts.toolName ?? null,
+      conversation_id: opts.conversationId,
+    });
+    return {
+      protectedOutput: raw.protected_output,
+      detectionsCount: (raw.detections_count as number) ?? 0,
+      fieldsProtected: (raw.fields_protected as string[]) ?? [],
+      auditLogId: (raw.audit_log_id as string) ?? undefined,
+    };
+  }
+
   // ── detokenize ───────────────────────────────────────────────────────────────
 
   /**
